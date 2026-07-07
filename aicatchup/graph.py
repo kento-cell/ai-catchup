@@ -25,6 +25,7 @@ from .knowledge import Knowledge
 from .judge import judge_items
 from .ollama_client import Ollama
 from .sources import SOURCES, fetch_all_parallel
+from .summarize import summarize_items
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,12 @@ def build_graph(cfg: Config, llm: Ollama, dedup: Dedup, knowledge: Knowledge):
                 break
         return {"ranked": ranked, "absorbed": absorbed}
 
+    def summarize_node(state: CatchupState) -> CatchupState:
+        ranked = state.get("ranked", [])
+        logger.info("writing dense summaries for %d delivered items", len(ranked))
+        summarize_items(ranked, llm, lang=cfg.lang)
+        return {"ranked": ranked}
+
     def digest_node(state: CatchupState) -> CatchupState:
         text = digest_mod.build(
             state.get("ranked", []), lang=cfg.lang, knowledge_size=knowledge.count()
@@ -166,6 +173,7 @@ def build_graph(cfg: Config, llm: Ollama, dedup: Dedup, knowledge: Knowledge):
     g.add_node("signals", signals_node)
     g.add_node("judge", judge_node)
     g.add_node("rank", rank_node)
+    g.add_node("summarize", summarize_node)
     g.add_node("digest", digest_node)
     g.add_node("deliver", deliver)
 
@@ -175,7 +183,8 @@ def build_graph(cfg: Config, llm: Ollama, dedup: Dedup, knowledge: Knowledge):
     g.add_edge("embed_store", "signals")
     g.add_edge("signals", "judge")
     g.add_edge("judge", "rank")
-    g.add_edge("rank", "digest")
+    g.add_edge("rank", "summarize")
+    g.add_edge("summarize", "digest")
     g.add_edge("digest", "deliver")
     g.add_edge("deliver", END)
     return g.compile()

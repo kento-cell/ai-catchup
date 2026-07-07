@@ -63,6 +63,9 @@ def build(ranked: list[dict[str, Any]], *, lang: str = "ja", knowledge_size: int
         lines.append(f"*{i}. {emoji} {item['title']}*")
         lines.append(f"   {item['url']}")
         lines.append(f"   `{sources}` — {why(item)}")
+        summary = item.get("digest_summary")
+        if summary:
+            lines.append(">" + summary.replace("\n", "\n>"))  # Slack quote block
         lines.append("")
     lines.append(tail)
     return "\n".join(lines)
