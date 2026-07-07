@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Local state — knowledge base & dedup DB accumulate on each run
+data/
+
+# Secrets / local config
+.env
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
