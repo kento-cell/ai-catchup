@@ -162,6 +162,15 @@ def build_graph(cfg: Config, llm: Ollama, dedup: Dedup, knowledge: Knowledge):
             keys = [(it["source"], str(it["item_id"])) for it in ranked]
             keys.extend(state.get("absorbed", []))
             dedup.mark_many(keys)
+            # Voice digest (optional, CATCHUP_TTS=0 to disable): runs in a
+            # detached child so this run's wall-clock time is unaffected.
+            # Never blocks or fails the delivery path.
+            try:
+                from . import tts as _tts
+                if _tts.is_enabled():
+                    _tts.spawn_detached(ranked)
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning("tts skipped (%s)", _exc)
         return {}
 
     _run_started = datetime.now(timezone.utc)
