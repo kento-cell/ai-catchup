@@ -15,13 +15,18 @@ Design history (2026-07-08):
 * v3: desktop shortcut, but still ran gemma/edge-tts AUTOMATICALLY at
   the end of every run regardless of whether the user planned to
   listen that day.
-* v4 (this revision — user: "毎回自動で回るのはもったいない"): voice
-  generation is fully opt-in. ``graph.py``'s deliver node only stashes
-  the delivered item list via :func:`stash_last_delivered`; the LLM
-  script + edge-tts synthesis run ONLY when the user explicitly
-  executes ``python -m aicatchup.tts --last``.
+* v4: made voice generation fully opt-in (``python -m aicatchup.tts
+  --last``) — running an LLM script + edge-tts on every catchup
+  regardless of listening intent felt wasteful.
+* v5 (this revision — user follow-up: "全自動に戻してほしい，MP3を
+  デスクトップに置くまで"): back to automatic, keeping what v1-v3 got
+  wrong fixed: runs DETACHED (never delays the Slack post) and never
+  auto-plays/auto-deletes — just refreshes the desktop shortcut and
+  stops. ``python -m aicatchup.tts --last`` still works standalone.
 
 Env toggles:
+  CATCHUP_TTS=0        disable the automatic post-catchup voice pass
+                        (stash_last_delivered still runs so --last works)
   CATCHUP_TTS_RATE     e.g. "+25%" (default) / "+40%" / "-10%"
   CATCHUP_TTS_VOICE    default "ja-JP-NanamiNeural"
 
@@ -67,13 +72,25 @@ def _audio_dir(cfg: Config) -> Path:
     return cfg.data_dir / "audio"
 
 
+def is_enabled() -> bool:
+    """``CATCHUP_TTS`` toggle for the AUTOMATIC post-catchup voice pass.
+
+    Default ON. Setting this to 0 stops the automatic mp3 generation
+    triggered by graph.py, but stash_last_delivered() still runs so a
+    manual ``python -m aicatchup.tts --last`` keeps working.
+    """
+    return os.getenv("CATCHUP_TTS", "1").strip().lower() not in {
+        "", "0", "false", "no", "off",
+    }
+
+
 # ----------------------------------------------------------------------
 # Stash: what the most recent run actually delivered
 # ----------------------------------------------------------------------
 def stash_last_delivered(items: list[dict], cfg: Config | None = None) -> None:
-    """Save the most recently delivered digest so an opt-in voice pass
-    doesn't need to re-fetch/re-summarise anything. Overwrites — only
-    the latest run is kept. Non-fatal."""
+    """Save the most recently delivered digest so a voice pass doesn't
+    need to re-fetch/re-summarise anything. Overwrites — only the
+    latest run is kept. Non-fatal."""
     cfg = cfg or Config()
     out_dir = _audio_dir(cfg)
     try:
@@ -82,7 +99,7 @@ def stash_last_delivered(items: list[dict], cfg: Config | None = None) -> None:
             json.dumps(items, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
-        logger.info("tts: stashed %d delivered items for opt-in voice", len(items))
+        logger.info("tts: stashed %d delivered items", len(items))
     except OSError as exc:
         logger.warning("tts: stash failed (non-fatal): %s", exc)
 
@@ -255,12 +272,13 @@ def run_tts(items: list[dict], cfg: Config | None = None) -> Path | None:
 
 
 def spawn_detached_for_last() -> bool:
-    """Launch an opt-in voice pass over the most recently delivered
-    catchup, in a detached child (returns in ~50ms instead of blocking
-    the terminal for the ~1-2 min gemma/edge-tts takes).
+    """Launch a voice pass over the most recently delivered catchup, in
+    a detached child (returns in ~50ms instead of blocking for the
+    ~1-2 min gemma/edge-tts takes).
 
-    Does nothing (and spends nothing) unless the user explicitly calls
-    this — it is never called from the delivery path automatically.
+    Called automatically by graph.py's deliver node after every
+    successful catchup post (so the post is never delayed), and also
+    callable standalone for reruns/debugging.
     """
     import sys
 
@@ -289,8 +307,8 @@ def spawn_detached_for_last() -> bool:
 
 def _worker_main() -> int:
     """CLI entry: ``python -m aicatchup.tts --last`` — voice the most
-    recently delivered catchup run. This is the only supported mode;
-    LLM inference + synthesis run only when a human asks."""
+    recently delivered catchup run. Invoked automatically (detached)
+    after every catchup post, and also runnable standalone."""
     import sys
 
     if "--last" not in sys.argv:

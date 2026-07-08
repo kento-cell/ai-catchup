@@ -162,17 +162,19 @@ def build_graph(cfg: Config, llm: Ollama, dedup: Dedup, knowledge: Knowledge):
             keys = [(it["source"], str(it["item_id"])) for it in ranked]
             keys.extend(state.get("absorbed", []))
             dedup.mark_many(keys)
-            # 2026-07-08: voice digest is fully opt-in — running the LLM
-            # script + edge-tts synthesis on every delivery regardless of
-            # whether the user plans to listen is wasted local compute
-            # (user feedback: "毎回自動で回るのはもったいない"). Only
-            # stash what was delivered; `python -m aicatchup.tts --last`
-            # voices it later, on request.
+            # 2026-07-08: voice digest — automatic, but DETACHED so this
+            # delivery is never delayed by LLM script + edge-tts
+            # synthesis. Never auto-plays or auto-deletes: refreshes
+            # the "AIキャッチアップを聞く" desktop shortcut and stops
+            # there. CATCHUP_TTS=0 disables the automatic pass (stash
+            # still runs so `--last` keeps working standalone).
             try:
                 from . import tts as _tts
                 _tts.stash_last_delivered(ranked, cfg)
+                if _tts.is_enabled():
+                    _tts.spawn_detached_for_last()
             except Exception as _exc:  # noqa: BLE001
-                logger.warning("tts stash skipped (%s)", _exc)
+                logger.warning("tts skipped (%s)", _exc)
         return {}
 
     _run_started = datetime.now(timezone.utc)
